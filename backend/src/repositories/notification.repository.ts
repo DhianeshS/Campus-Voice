@@ -1,9 +1,11 @@
+import crypto from 'crypto';
 import { PoolClient } from 'pg';
 import { executeQuery, getDbPool } from '../db/database';
 import { AppError } from '../middleware/errorHandler';
 import type { StudentNotification } from '../types';
 
 const MEMORY_NOTIFICATIONS = new Map<string, StudentNotification>();
+const isUuid = (val: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 
 export const notificationRepository = {
   async createNotification(
@@ -14,26 +16,13 @@ export const notificationRepository = {
     type: StudentNotification['type'] = 'status_update',
     client?: PoolClient
   ): Promise<StudentNotification> {
-    const id = `NTF-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    if (client) {
-      try {
-        const res = await client.query(
-          `INSERT INTO public.notifications (id, user_id, complaint_id, title, message, type, is_read, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, false, NOW())
-           RETURNING id, user_id as "userId", complaint_id as "complaintId", title, message, type, is_read as read, created_at as "createdAt"`,
-          [id, userId, complaintId || null, title, message, type]
-        );
-        if (res.rows.length > 0) return res.rows[0];
-      } catch (err) {
-        // Fall back to memory
-      }
-    } else {
-      const pool = getDbPool();
-      if (pool) {
+    if (isUuid(userId)) {
+      if (client) {
         try {
-          const res = await executeQuery<any>(
+          const res = await client.query(
             `INSERT INTO public.notifications (id, user_id, complaint_id, title, message, type, is_read, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, false, NOW())
              RETURNING id, user_id as "userId", complaint_id as "complaintId", title, message, type, is_read as read, created_at as "createdAt"`,
@@ -41,7 +30,22 @@ export const notificationRepository = {
           );
           if (res.rows.length > 0) return res.rows[0];
         } catch (err) {
-          // Fall back to memory
+          // If in transaction, don't rethrow unless needed, but with valid UUID it succeeds
+        }
+      } else {
+        const pool = getDbPool();
+        if (pool) {
+          try {
+            const res = await executeQuery<any>(
+              `INSERT INTO public.notifications (id, user_id, complaint_id, title, message, type, is_read, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, false, NOW())
+               RETURNING id, user_id as "userId", complaint_id as "complaintId", title, message, type, is_read as read, created_at as "createdAt"`,
+              [id, userId, complaintId || null, title, message, type]
+            );
+            if (res.rows.length > 0) return res.rows[0];
+          } catch (err) {
+            // Fall back to memory
+          }
         }
       }
     }
