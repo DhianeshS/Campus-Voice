@@ -4,6 +4,18 @@ import type { UserProfile, UserRole } from '../types';
 // Seed memory store for fallback when database is in standby mode
 const MEMORY_PROFILES = new Map<string, UserProfile>([
   [
+    '0096fa2a-be2d-45d5-9d20-28d956942664',
+    {
+      id: '0096fa2a-be2d-45d5-9d20-28d956942664',
+      email: 'dhianeshs26@gmail.com',
+      fullName: 'Dhianesh',
+      role: 'admin',
+      studentId: '922524106055',
+      department: 'Electrical & Electronics Engineering',
+      createdAt: '2026-10-24T02:55:33Z',
+    },
+  ],
+  [
     'usr_admin_default',
     {
       id: 'usr_admin_default',

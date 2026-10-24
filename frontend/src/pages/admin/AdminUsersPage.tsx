@@ -15,6 +15,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { adminComplaintService } from '../../services/adminComplaint.service';
+import { supabase } from '../../services/supabase';
 import { useAuth } from '../../context/AuthContext';
 import type { UserProfile, UserRole } from '../../types';
 import {
@@ -43,20 +44,49 @@ export function AdminUsersPage() {
   const [roleModalOpen, setRoleModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const loadUsers = useCallback(() => {
+  const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const data = adminComplaintService.getUsers(search, roleFilter);
+      const data = await adminComplaintService.getUsers(search, roleFilter);
       setUsers(data);
     } catch (err) {
-      console.error('Failed to load users', err);
+      console.error('Failed to load users in real time', err);
     } finally {
       setLoading(false);
     }
   }, [search, roleFilter]);
 
+  // Initial load & real-time live synchronization
   useEffect(() => {
     loadUsers();
+
+    // 1. Supabase Postgres Realtime Subscription
+    let channel: any = null;
+    if (supabase) {
+      channel = supabase
+        .channel('realtime_admin_profiles')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'profiles' },
+          (payload) => {
+            console.log('⚡ Real-time Profile Mutation Received:', payload);
+            loadUsers();
+          }
+        )
+        .subscribe();
+    }
+
+    // 2. High-Frequency Polling Heartbeat (every 3 seconds) for instant live sync
+    const heartbeat = setInterval(() => {
+      loadUsers();
+    }, 3000);
+
+    return () => {
+      clearInterval(heartbeat);
+      if (channel && supabase) {
+        supabase.removeChannel(channel);
+      }
+    };
   }, [loadUsers]);
 
   const currentAdminId = currentAuthUser?.id || currentAuthProfile?.id || 'usr_admin_default';
@@ -87,14 +117,14 @@ export function AdminUsersPage() {
 
     setIsSubmitting(true);
     try {
-      adminComplaintService.updateUserRole(selectedUser.id, newRole, currentAdminId);
+      await adminComplaintService.updateUserRole(selectedUser.id, newRole, currentAdminId);
       addToast({
         title: 'User Role Updated',
         message: `Security role for ${selectedUser.fullName} has been updated to ${newRole.toUpperCase()}.`,
         variant: 'success',
       });
       setRoleModalOpen(false);
-      loadUsers();
+      await loadUsers();
     } catch (err: any) {
       addToast({
         title: 'Action Prohibited',
@@ -123,18 +153,25 @@ export function AdminUsersPage() {
             Institutional User & Role Registry
           </h1>
           <p className="text-xs text-[#68716A] mt-1 max-w-2xl leading-relaxed">
-            Audit registered student accounts, grievance intake officers, and system administrators. Role mutations are subject to strict non-self-escalation policies.
+            Audit registered student accounts, grievance intake officers, and system administrators. Role mutations are synchronized in real time.
           </p>
         </div>
 
-        <Button
-          variant="outline"
-          size="md"
-          onClick={loadUsers}
-          startIcon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />}
-        >
-          Refresh Directory
-        </Button>
+        <div className="flex items-center gap-2.5">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-[#E6EDE5] text-[#365442] border border-[#A7B8A5]">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Real-time Live Sync</span>
+          </span>
+
+          <Button
+            variant="outline"
+            size="md"
+            onClick={() => loadUsers()}
+            startIcon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />}
+          >
+            Refresh Directory
+          </Button>
+        </div>
       </div>
 
       {/* 2. Security Non-Self-Escalation Callout */}

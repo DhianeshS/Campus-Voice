@@ -208,7 +208,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Standby / Local Mode: provision authenticated administrator session
       const nowIso = new Date().toISOString();
       const adminId = 'admin_demo_001';
-      const adminName = cleanEmail.toLowerCase().includes('evelyn')
+      const adminName = cleanEmail.toLowerCase().includes('dhianesh')
+        ? 'Dhianesh'
+        : cleanEmail.toLowerCase().includes('evelyn')
         ? 'Dr. Evelyn Vance'
         : cleanEmail.split('@')[0] || 'Administrator';
 
