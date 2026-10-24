@@ -240,3 +240,81 @@ ON CONFLICT (id) DO UPDATE SET
   description = EXCLUDED.description,
   department_name = EXCLUDED.department_name,
   default_sla_hours = EXCLUDED.default_sla_hours;
+
+-- ====================================================================
+-- 15. Automated Supabase Auth Profile Synchronization Trigger
+-- Automatically populates public.profiles whenever a user signs up via auth.users
+-- ====================================================================
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (
+    id,
+    email,
+    full_name,
+    role,
+    student_id,
+    department_name,
+    created_at,
+    updated_at
+  )
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.email, ''),
+    COALESCE(
+      NEW.raw_user_meta_data->>'fullName',
+      NEW.raw_user_meta_data->>'full_name',
+      split_part(COALESCE(NEW.email, 'student'), '@', 1)
+    ),
+    COALESCE(
+      NULLIF(NEW.raw_user_meta_data->>'role', '')::user_role,
+      'student'::user_role
+    ),
+    NEW.raw_user_meta_data->>'studentId',
+    NEW.raw_user_meta_data->>'department',
+    NOW(),
+    NOW()
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    full_name = EXCLUDED.full_name,
+    email = EXCLUDED.email,
+    role = EXCLUDED.role,
+    student_id = COALESCE(EXCLUDED.student_id, public.profiles.student_id),
+    department_name = COALESCE(EXCLUDED.department_name, public.profiles.department_name),
+    updated_at = NOW();
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT OR UPDATE ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Backfill any existing users from auth.users into public.profiles
+INSERT INTO public.profiles (id, email, full_name, role, student_id, department_name, created_at, updated_at)
+SELECT 
+  id,
+  COALESCE(email, ''),
+  COALESCE(
+    raw_user_meta_data->>'fullName',
+    raw_user_meta_data->>'full_name',
+    split_part(COALESCE(email, 'student'), '@', 1)
+  ),
+  COALESCE(
+    NULLIF(raw_user_meta_data->>'role', '')::user_role,
+    'student'::user_role
+  ),
+  raw_user_meta_data->>'studentId',
+  raw_user_meta_data->>'department',
+  created_at,
+  NOW()
+FROM auth.users
+ON CONFLICT (id) DO UPDATE SET
+  full_name = EXCLUDED.full_name,
+  email = EXCLUDED.email,
+  student_id = COALESCE(EXCLUDED.student_id, public.profiles.student_id),
+  department_name = COALESCE(EXCLUDED.department_name, public.profiles.department_name),
+  updated_at = NOW();
+
